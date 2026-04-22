@@ -19,7 +19,7 @@
 
 ## Getting Started
 \`\`\`bash
-git clone https://github.com/yourusername/cipherwatch.git
+git clone https://github.com/prezzo43-spec/cipherwatch.git
 cd cipherwatch
 \`\`\`
 
