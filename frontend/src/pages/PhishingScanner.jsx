@@ -31,48 +31,37 @@ const PhishingScanner = () => {
     setResult(null);
 
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch("http://localhost:5000/api/scan", {
         method: "POST",
-        headers: {
-  "Content-Type": "application/json",
-  "x-api-key": process.env.REACT_APP_ANTHROPIC_KEY,
-  "anthropic-version": "2023-06-01",
-  "anthropic-dangerous-direct-browser-access": "true",
-},
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [
-            {
-              role: "user",
-              content: `You are a cybersecurity expert. Analyze this ${scanType} for phishing, malware, or social engineering threats.
-
-${scanType.toUpperCase()}: ${input}
-
-Respond ONLY with a valid JSON object in this exact format (no markdown, no extra text):
-{
-  "verdict": "Safe" or "Suspicious" or "Dangerous",
-  "risk_score": number between 0-100,
-  "summary": "one sentence summary",
-  "red_flags": ["flag1", "flag2"],
-  "recommendation": "what the user should do"
-}`,
-            },
-          ],
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input, scanType }),
       });
 
-      const data = await response.json();
-      const text = data.content.map((i) => i.text || "").join("");
-      const clean = text.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(clean);
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error("Backend error:", errText);
+        throw new Error("Backend returned error");
+      }
+
+      const parsed = await response.json();
       setResult(parsed);
       setHistory((prev) => [
-        { input: input.substring(0, 40) + "...", verdict: parsed.verdict, time: new Date().toLocaleTimeString() },
+        {
+          input: input.substring(0, 40) + "...",
+          verdict: parsed.verdict,
+          time: new Date().toLocaleTimeString(),
+        },
         ...prev.slice(0, 4),
       ]);
     } catch (err) {
-      setResult({ verdict: "Error", summary: "Analysis failed. Please try again.", red_flags: [], recommendation: "Check your connection.", risk_score: 0 });
+      console.error("Scan error:", err);
+      setResult({
+        verdict: "Error",
+        summary: err.message,
+        red_flags: [],
+        recommendation: "Check browser console for details.",
+        risk_score: 0,
+      });
     }
 
     setLoading(false);
