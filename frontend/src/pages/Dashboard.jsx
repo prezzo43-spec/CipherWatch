@@ -1,3 +1,4 @@
+import ThreatMonitor from "./ThreatMonitor";
 import PhishingScanner from "./PhishingScanner";
 import { useState } from "react";
 import Sidebar from "../components/Sidebar";
@@ -83,6 +84,7 @@ const Dashboard = () => {
     </div>
   )}
   {active === "Phishing Scanner" && <PhishingScanner />}
+  {active === "Threat Monitor" && <ThreatMonitor />}
 </main>
       </div>
     </div>
