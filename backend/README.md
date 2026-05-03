@@ -22,7 +22,20 @@ Secure backend server for phishing analysis using **Grok AI (xAI)** - **FREE TIE
    GROK_API_KEY=xai-your-actual-key-here
    ```
 
-4. **Start the server:**
+4. **Optional Stripe billing setup:**
+   - Copy `backend/.env.example` to `backend/.env` or add the following values:
+   ```
+   STRIPE_SECRET_KEY=sk_test_YOUR_SECRET_KEY
+   STRIPE_PRICE_ID_MONTHLY=price_YOUR_MONTHLY_ID
+   STRIPE_PRICE_ID_YEARLY=price_YOUR_YEARLY_ID
+   FRONTEND_URL=http://localhost:3000
+   ```
+   - Add your Stripe publishable key in the frontend:
+   ```bash
+   REACT_APP_STRIPE_PUBLISHABLE_KEY=pk_test_YOUR_PUBLISHABLE_KEY
+   ```
+
+5. **Start the server:**
    ```bash
    npm start
    ```
@@ -60,6 +73,22 @@ The server will run on `http://localhost:5000`
     "summary": "Analysis summary",
     "red_flags": ["flag1", "flag2"],
     "recommendation": "What user should do"
+  }
+  ```
+
+### Stripe Billing
+- **POST** `/api/create-checkout-session`
+- Request body:
+  ```json
+  {
+    "plan": "premium_monthly" or "premium_yearly"
+  }
+  ```
+- Response:
+  ```json
+  {
+    "sessionId": "cs_test_...",
+    "url": "https://checkout.stripe.com/pay/cs_test_..."
   }
   ```
 

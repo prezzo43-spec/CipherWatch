@@ -1,7 +1,16 @@
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
+const Stripe = require("stripe");
 require("dotenv").config();
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+
+const PRICE_IDS = {
+  premium_monthly: process.env.STRIPE_PRICE_ID_MONTHLY,
+  premium_yearly: process.env.STRIPE_PRICE_ID_YEARLY,
+};
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -119,6 +128,45 @@ Respond ONLY with a valid JSON object in this exact format (no markdown, no extr
       recommendation: "Check your connection.",
       risk_score: 0,
     });
+  }
+});
+
+// Stripe checkout session endpoint
+app.post("/api/create-checkout-session", async (req, res) => {
+  try {
+    const { plan } = req.body;
+    const priceId = PRICE_IDS[plan];
+
+    if (!priceId) {
+      return res.status(400).json({ error: "Invalid plan selected" });
+    }
+
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return res.status(500).json({ error: "Stripe secret key is not configured" });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "subscription",
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      billing_address_collection: "auto",
+      allow_promotion_codes: true,
+      success_url: `${FRONTEND_URL}/?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${FRONTEND_URL}/?canceled=true`,
+      metadata: {
+        plan,
+      },
+    });
+
+    res.json({ sessionId: session.id, url: session.url });
+  } catch (error) {
+    console.error("Error creating Stripe checkout session:", error.response?.data || error.message);
+    res.status(500).json({ error: "Unable to create checkout session." });
   }
 });
 

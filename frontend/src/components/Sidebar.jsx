@@ -3,6 +3,7 @@ const Sidebar = ({ active, setActive }) => {
     { name: "Dashboard", icon: "🛡️" },
     { name: "Phishing Scanner", icon: "🔍" },
     { name: "Threat Monitor", icon: "🚨" },
+    { name: "Billing", icon: "💳" },
     { name: "Network Scan", icon: "🌐" },
     { name: "Reports", icon: "📊" },
     { name: "Settings", icon: "⚙️" },
