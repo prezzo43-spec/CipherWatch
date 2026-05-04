@@ -18,8 +18,11 @@ const generateThreat = (id) => ({
   severity: severities[Math.floor(Math.random() * severities.length)],
   source: sources[Math.floor(Math.random() * sources.length)] + Math.floor(Math.random() * 255),
   region: regions[Math.floor(Math.random() * regions.length)],
+  city: "Unknown",
   time: new Date().toLocaleTimeString(),
   blocked: Math.random() > 0.3,
+  source_data: "Mock Data",
+  threat_score: Math.floor(Math.random() * 100),
 });
 
 const stats = [
@@ -30,25 +33,88 @@ const stats = [
 ];
 
 export default function ThreatMonitor() {
-  const [threats, setThreats] = useState(() =>
-    Array.from({ length: 8 }, (_, i) => generateThreat(i))
-  );
+  const [threats, setThreats] = useState([]);
   const [filter, setFilter] = useState("All");
   const [paused, setPaused] = useState(false);
   const [selected, setSelected] = useState(null);
   const [alertCount, setAlertCount] = useState(0);
+  const [loading, setLoading] = useState(true);
 
+  // Fetch real threats from backend
+  useEffect(() => {
+    const fetchThreats = async () => {
+      try {
+        const response = await fetch("http://localhost:5000/api/threats");
+        if (response.ok) {
+          const data = await response.json();
+          if (data.threats && Array.isArray(data.threats)) {
+            // Convert API data to frontend format with time
+            const formattedThreats = data.threats.map((threat, idx) => ({
+              id: threat.id || `threat-${idx}-${Date.now()}`,
+              type: threat.type || "Threat",
+              severity: threat.severity || "Medium",
+              source: threat.source || "Unknown",
+              region: threat.region || "Unknown",
+              city: threat.city || "Unknown",
+              blocked: threat.blocked !== undefined ? threat.blocked : Math.random() > 0.3,
+              time: new Date().toLocaleTimeString(),
+              source_data: threat.source_data || "CipherWatch",
+              threat_score: threat.threat_score || 0,
+            }));
+            setThreats(formattedThreats);
+            const criticalCount = formattedThreats.filter(t => t.severity === "Critical").length;
+            setAlertCount(criticalCount);
+            setLoading(false);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching threats:", err);
+        // Fallback to mock data
+        const mockThreats = Array.from({ length: 8 }, (_, i) => generateThreat(i));
+        setThreats(mockThreats);
+        setLoading(false);
+      }
+    };
+
+    fetchThreats();
+  }, []);
+
+  // Auto-refresh threats every 10 seconds
   useEffect(() => {
     if (paused) return;
-    const interval = setInterval(() => {
-      const newThreat = generateThreat(Date.now());
-      setThreats((prev) => [newThreat, ...prev.slice(0, 19)]);
-      if (newThreat.severity === "Critical") {
-        setAlertCount((c) => c + 1);
+    
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch("http://localhost:5000/api/threats");
+        if (response.ok) {
+          const data = await response.json();
+          if (data.threats && Array.isArray(data.threats)) {
+            const formattedThreats = data.threats.map((threat, idx) => ({
+              id: threat.id || `threat-${idx}-${Date.now()}`,
+              type: threat.type || "Threat",
+              severity: threat.severity || "Medium",
+              source: threat.source || "Unknown",
+              region: threat.region || "Unknown",
+              city: threat.city || "Unknown",
+              blocked: threat.blocked !== undefined ? threat.blocked : Math.random() > 0.3,
+              time: new Date().toLocaleTimeString(),
+              source_data: threat.source_data || "CipherWatch",
+              threat_score: threat.threat_score || 0,
+            }));
+            setThreats(formattedThreats);
+            const criticalCount = formattedThreats.filter(t => t.severity === "Critical").length;
+            if (criticalCount > alertCount) {
+              setAlertCount(criticalCount);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error refreshing threats:", err);
       }
-    }, 3000);
+    }, 10000); // Refresh every 10 seconds
+
     return () => clearInterval(interval);
-  }, [paused]);
+  }, [paused, alertCount]);
 
   const filtered = filter === "All" ? threats : threats.filter((t) => t.severity === filter);
 
@@ -59,7 +125,7 @@ export default function ThreatMonitor() {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-white text-2xl font-bold">🚨 Threat Monitor</h2>
-          <p className="text-slate-400 mt-1">Live feed of detected threats across all systems</p>
+          <p className="text-slate-400 mt-1">Live feed of detected threats across the world</p>
         </div>
         <div className="flex items-center gap-3">
           {alertCount > 0 && (
@@ -166,8 +232,11 @@ export default function ThreatMonitor() {
               ["Threat Type", selected.type],
               ["Source IP", selected.source],
               ["Region", selected.region],
+              ["City", selected.city],
               ["Severity", selected.severity],
               ["Status", selected.blocked ? "Blocked" : "Active"],
+              ["Threat Score", `${selected.threat_score || 0}/100`],
+              ["Source", selected.source_data],
               ["Detected At", selected.time],
             ].map(([label, value]) => (
               <div key={label} className="bg-slate-900/50 rounded-lg p-3">
