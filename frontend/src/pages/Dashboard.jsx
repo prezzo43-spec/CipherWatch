@@ -1,6 +1,8 @@
 import ThreatMonitor from "./ThreatMonitor";
 import PhishingScanner from "./PhishingScanner";
 import NetworkScanner from "./NetworkScanner";
+import Reports from "./Reports";
+import Settings from "./Settings";
 import Billing from "./Billing";
 import { useState } from "react";
 import Sidebar from "../components/Sidebar";
@@ -89,16 +91,8 @@ const Dashboard = () => {
   {active === "Threat Monitor" && <ThreatMonitor />}
   {active === "Billing" && <Billing />}
   {active === "Network Scan" && <NetworkScanner />}
-  {['Reports', 'Settings'].includes(active) && (
-    <div className="p-8 text-slate-200">
-      <div className="bg-slate-800 border border-slate-700 rounded-3xl p-8 max-w-3xl">
-        <h3 className="text-2xl font-bold mb-4">🚧 {active} coming soon</h3>
-        <p className="text-slate-400 leading-relaxed">
-          This section is under development as part of the CipherWatch roadmap. Stay tuned for analytics and advanced settings.
-        </p>
-      </div>
-    </div>
-  )}
+  {active === "Reports" && <Reports />}
+  {active === "Settings" && <Settings />}
 </main>
       </div>
     </div>

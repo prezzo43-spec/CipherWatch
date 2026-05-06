@@ -1,6 +1,6 @@
 # CipherWatch Backend
 
-Secure backend server for phishing analysis using **Grok AI (xAI)** - **FREE TIER AVAILABLE!**
+Secure backend server for CipherWatch with live API key support for real-world threat intelligence.
 
 ## Setup & Installation
 
@@ -9,30 +9,28 @@ Secure backend server for phishing analysis using **Grok AI (xAI)** - **FREE TIE
    npm install
    ```
 
-2. **Get FREE Grok API Key:**
-   - Visit [xAI Console](https://console.x.ai/)
-   - Sign up for a free account
-   - Generate an API key
-   - Copy the key
+2. **Copy the environment example:**
+   ```bash
+   cd backend
+   cp .env.example .env
+   ```
 
-3. **Configure environment variables:**
+3. **Configure real API keys:**
    - Open `backend/.env`
-   - Replace `xai-your-free-api-key-here` with your actual Grok API key:
-   ```
+   - Add your keys for live phishing and threat data:
+   ```env
    GROK_API_KEY=xai-your-actual-key-here
+   ABUSEIPDB_API_KEY=your-abuseipdb-key
+   OTX_API_KEY=your-alienvault-otx-key
+   URLHAUS_API_KEY=optional-urlhaus-key
    ```
 
-4. **Optional Stripe billing setup:**
-   - Copy `backend/.env.example` to `backend/.env` or add the following values:
-   ```
+4. **Optional billing setup:**
+   ```env
    STRIPE_SECRET_KEY=sk_test_YOUR_SECRET_KEY
    STRIPE_PRICE_ID_MONTHLY=price_YOUR_MONTHLY_ID
    STRIPE_PRICE_ID_YEARLY=price_YOUR_YEARLY_ID
    FRONTEND_URL=http://localhost:3000
-   ```
-   - Add your Stripe publishable key in the frontend:
-   ```bash
-   REACT_APP_STRIPE_PUBLISHABLE_KEY=pk_test_YOUR_PUBLISHABLE_KEY
    ```
 
 5. **Start the server:**
@@ -40,21 +38,41 @@ Secure backend server for phishing analysis using **Grok AI (xAI)** - **FREE TIE
    npm start
    ```
 
-The server will run on `http://localhost:5000`
+The server will run on `http://localhost:5000`.
 
-## Features
+## Real API Key Support
 
-✅ **FREE Grok AI** - No credit card required for basic usage
-✅ **Mock fallback** - Works even without API key for testing
-✅ **Secure API key storage** - Server-side only
-✅ **CORS enabled** - Frontend communication
-✅ **Error handling** - Detailed error responses
+CipherWatch can now use live API keys for real-world data:
+
+- `GROK_API_KEY` for xAI phishing analysis
+- `ABUSEIPDB_API_KEY` for malicious IP intelligence
+- `OTX_API_KEY` for AlienVault OTX pulses
+- `URLHAUS_API_KEY` support is available if required by specific workflows
+
+The frontend Settings page also persists API key values via the server.
+
+## Settings Endpoints
+
+### Get current settings
+- **GET** `/api/settings`
+
+### Save API keys and backend settings
+- **POST** `/api/settings`
+- Request body:
+  ```json
+  {
+    "GROK_API_KEY": "...",
+    "ABUSEIPDB_API_KEY": "...",
+    "OTX_API_KEY": "...",
+    "URLHAUS_API_KEY": "..."
+  }
+  ```
 
 ## API Endpoints
 
 ### Health Check
 - **GET** `/api/health`
-- Returns: `{ status: "ok", message: "Backend is running" }`
+- Response: `{ status: "ok", message: "Backend is running" }`
 
 ### Analyze URL/Email
 - **POST** `/api/scan`
@@ -62,19 +80,17 @@ The server will run on `http://localhost:5000`
   ```json
   {
     "input": "url or email content to analyze",
-    "scanType": "url" or "email"
+    "scanType": "url"
   }
   ```
-- Response:
-  ```json
-  {
-    "verdict": "Safe | Suspicious | Dangerous",
-    "risk_score": 0-100,
-    "summary": "Analysis summary",
-    "red_flags": ["flag1", "flag2"],
-    "recommendation": "What user should do"
-  }
-  ```
+
+### Network Scan
+- **POST** `/api/network-scan`
+- Request body includes `target` and `scanType`, and the backend uses real port scanning plus device discovery.
+
+### Threat Intelligence
+- **GET** `/api/threats`
+- Returns aggregated threat feeds from AbuseIPDB, URLhaus, and AlienVault OTX when configured.
 
 ### Stripe Billing
 - **POST** `/api/create-checkout-session`
@@ -84,21 +100,10 @@ The server will run on `http://localhost:5000`
     "plan": "premium_monthly" or "premium_yearly"
   }
   ```
-- Response:
-  ```json
-  {
-    "sessionId": "cs_test_...",
-    "url": "https://checkout.stripe.com/pay/cs_test_..."
-  }
-  ```
 
-## Testing Without API Key
+## Notes
 
-If you don't set up the Grok API key, the backend will automatically use mock responses for testing the UI. Just start the server and it will work!
+- If API keys are missing for a source, CipherWatch will still run and fallback gracefully.
+- `backend/settings.json` is ignored by git and stores runtime key values locally.
+- Keep your keys secure and do not commit `.env` or `settings.json` to source control.
 
-## Troubleshooting
-
-- **Connection refused?** Make sure backend is running on port 5000
-- **API key error?** Verify `GROK_API_KEY` in `.env`
-- **CORS errors?** Backend has CORS enabled by default
-- **Mock mode?** Check console for "⚠️ Grok API key not configured, using mock response"

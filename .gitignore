@@ -9,6 +9,7 @@ backend/node_modules/
 .env
 frontend/.env
 backend/.env
+backend/settings.json
 
 # Build output
 /frontend/build/

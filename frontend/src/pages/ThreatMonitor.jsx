@@ -120,6 +120,11 @@ export default function ThreatMonitor() {
 
   return (
     <div className="p-8 flex flex-col gap-6">
+      {loading && (
+        <div className="bg-slate-800 rounded-xl p-6 text-slate-300">
+          Fetching live threat data...
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex justify-between items-center">

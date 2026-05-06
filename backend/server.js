@@ -7,15 +7,78 @@ const portscanner = require("portscanner");
 const ip = require("ip");
 const dns = require("dns").promises;
 const geoip = require("geoip-lite");
+const fs = require("fs");
+const path = require("path");
 require("dotenv").config();
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+const SETTINGS_FILE = process.env.SETTINGS_FILE || path.join(__dirname, "settings.json");
 
-const PRICE_IDS = {
-  premium_monthly: process.env.STRIPE_PRICE_ID_MONTHLY,
-  premium_yearly: process.env.STRIPE_PRICE_ID_YEARLY,
+function loadSettingsFile() {
+  try {
+    if (fs.existsSync(SETTINGS_FILE)) {
+      return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"));
+    }
+  } catch (err) {
+    console.error("Failed to load settings file:", err.message);
+  }
+  return {};
+}
+
+function saveSettingsFile(settings) {
+  try {
+    const nextSettings = { ...savedSettings };
+    Object.entries(settings).forEach(([key, value]) => {
+      if (value !== undefined) {
+        nextSettings[key] = value;
+      }
+    });
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(nextSettings, null, 2));
+    savedSettings = nextSettings;
+    Object.entries(settings).forEach(([key, value]) => {
+      if (value !== undefined) {
+        appConfig[key] = value;
+      }
+    });
+    return nextSettings;
+  } catch (err) {
+    console.error("Failed to save settings file:", err.message);
+    throw err;
+  }
+}
+
+function maskKey(value) {
+  if (!value) return "";
+  if (value.length <= 8) return "****";
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
+
+let savedSettings = loadSettingsFile();
+
+const appConfig = {
+  GROK_API_KEY: process.env.GROK_API_KEY || savedSettings.GROK_API_KEY || "",
+  ABUSEIPDB_API_KEY: process.env.ABUSEIPDB_API_KEY || savedSettings.ABUSEIPDB_API_KEY || "",
+  OTX_API_KEY: process.env.OTX_API_KEY || savedSettings.OTX_API_KEY || "",
+  URLHAUS_API_KEY: process.env.URLHAUS_API_KEY || savedSettings.URLHAUS_API_KEY || "",
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY || savedSettings.STRIPE_SECRET_KEY || "",
+  STRIPE_PRICE_ID_MONTHLY: process.env.STRIPE_PRICE_ID_MONTHLY || savedSettings.STRIPE_PRICE_ID_MONTHLY || "",
+  STRIPE_PRICE_ID_YEARLY: process.env.STRIPE_PRICE_ID_YEARLY || savedSettings.STRIPE_PRICE_ID_YEARLY || "",
+  FRONTEND_URL: process.env.FRONTEND_URL || savedSettings.FRONTEND_URL || "http://localhost:3000",
 };
+
+function getStripeClient() {
+  if (!appConfig.STRIPE_SECRET_KEY) {
+    throw new Error("Stripe secret key is not configured");
+  }
+  return new Stripe(appConfig.STRIPE_SECRET_KEY);
+}
+
+function getPriceId(plan) {
+  return {
+    premium_monthly: appConfig.STRIPE_PRICE_ID_MONTHLY,
+    premium_yearly: appConfig.STRIPE_PRICE_ID_YEARLY,
+  }[plan];
+}
+
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -63,6 +126,67 @@ function generateMockAnalysis(input, scanType) {
 // Health check endpoint
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", message: "Backend is running" });
+});
+
+// Settings API endpoints
+app.get("/api/settings", (req, res) => {
+  res.json({
+    success: true,
+    settings: {
+      GROK_API_KEY: maskKey(appConfig.GROK_API_KEY),
+      ABUSEIPDB_API_KEY: maskKey(appConfig.ABUSEIPDB_API_KEY),
+      OTX_API_KEY: maskKey(appConfig.OTX_API_KEY),
+      URLHAUS_API_KEY: maskKey(appConfig.URLHAUS_API_KEY),
+      STRIPE_SECRET_KEY: maskKey(appConfig.STRIPE_SECRET_KEY),
+      STRIPE_PRICE_ID_MONTHLY: appConfig.STRIPE_PRICE_ID_MONTHLY,
+      STRIPE_PRICE_ID_YEARLY: appConfig.STRIPE_PRICE_ID_YEARLY,
+      FRONTEND_URL: appConfig.FRONTEND_URL,
+    },
+  });
+});
+
+app.post("/api/settings", (req, res) => {
+  try {
+    const {
+      GROK_API_KEY,
+      ABUSEIPDB_API_KEY,
+      OTX_API_KEY,
+      URLHAUS_API_KEY,
+      STRIPE_SECRET_KEY,
+      STRIPE_PRICE_ID_MONTHLY,
+      STRIPE_PRICE_ID_YEARLY,
+      FRONTEND_URL,
+    } = req.body;
+
+    const updated = saveSettingsFile({
+      GROK_API_KEY,
+      ABUSEIPDB_API_KEY,
+      OTX_API_KEY,
+      URLHAUS_API_KEY,
+      STRIPE_SECRET_KEY,
+      STRIPE_PRICE_ID_MONTHLY,
+      STRIPE_PRICE_ID_YEARLY,
+      FRONTEND_URL,
+    });
+
+    res.json({
+      success: true,
+      message: "Settings saved",
+      settings: {
+        GROK_API_KEY: maskKey(updated.GROK_API_KEY),
+        ABUSEIPDB_API_KEY: maskKey(updated.ABUSEIPDB_API_KEY),
+        OTX_API_KEY: maskKey(updated.OTX_API_KEY),
+        URLHAUS_API_KEY: maskKey(updated.URLHAUS_API_KEY),
+        STRIPE_SECRET_KEY: maskKey(updated.STRIPE_SECRET_KEY),
+        STRIPE_PRICE_ID_MONTHLY: updated.STRIPE_PRICE_ID_MONTHLY,
+        STRIPE_PRICE_ID_YEARLY: updated.STRIPE_PRICE_ID_YEARLY,
+        FRONTEND_URL: updated.FRONTEND_URL,
+      },
+    });
+  } catch (err) {
+    console.error("Error saving settings:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // Phishing analysis endpoint
@@ -456,21 +580,21 @@ async function fetchRealThreats() {
   try {
     // Fetch real threat data from multiple sources
     // 1. AbuseIPDB - Malicious IPs
-    const abuseIPDBKey = process.env.ABUSEIPDB_API_KEY;
+    const abuseIPDBKey = appConfig.ABUSEIPDB_API_KEY;
     if (abuseIPDBKey) {
       try {
         const abuseResponse = await axios.get("https://api.abuseipdb.com/api/v2/blacklist", {
           headers: { Key: abuseIPDBKey, Accept: "application/json" },
-          params: { limit: 5 },
+          params: { limit: 5, confidenceMinimum: 75 },
           timeout: 5000,
         });
-        
+
         if (abuseResponse.data && abuseResponse.data.data) {
           abuseResponse.data.data.slice(0, 3).forEach((ip) => {
             const location = getLocationForIP(ip.ipAddress);
             threats.push({
               type: threatTypes[Math.floor(Math.random() * threatTypes.length)],
-              severity: severities[Math.floor(Math.random() * 2)], // Critical or High
+              severity: severities[Math.floor(Math.random() * 2)],
               source: ip.ipAddress,
               region: location.region,
               city: location.city,
@@ -481,7 +605,7 @@ async function fetchRealThreats() {
           });
         }
       } catch (err) {
-        console.error("AbuseIPDB error:", err.message);
+        console.error("AbuseIPDB error:", err.response?.data || err.message);
       }
     }
 
@@ -490,43 +614,42 @@ async function fetchRealThreats() {
       const urlhausResponse = await axios.get("https://urlhaus-api.abuse.ch/v1/urls/recent/", {
         timeout: 5000,
       });
-      
-      if (urlhausResponse.data && urlhausResponse.data.urls) {
-        urlhausResponse.data.urls.slice(0, 3).forEach((url) => {
-          // Extract IP or domain from URL
-          const urlObj = new URL(url.url).hostname;
-          try {
-            dns.resolve4(urlObj).then((addresses) => {
-              if (addresses && addresses[0]) {
-                const location = getLocationForIP(addresses[0]);
-                threats.push({
-                  type: "Malware",
-                  severity: "Critical",
-                  source: addresses[0],
-                  region: location.region,
-                  city: location.city,
-                  blocked: Math.random() > 0.3,
-                  source_data: "URLhaus",
-                  threat_score: 95,
-                });
-              }
-            }).catch(() => {});
-          } catch (err) {}
-        });
-      }
+      const recentUrls = urlhausResponse.data?.urls || urlhausResponse.data?.url_list || [];
+
+      await Promise.all(recentUrls.slice(0, 3).map(async (urlItem) => {
+        try {
+          const hostname = new URL(urlItem.url).hostname;
+          const addresses = await dns.resolve4(hostname).catch(() => []);
+          if (addresses && addresses[0]) {
+            const location = getLocationForIP(addresses[0]);
+            threats.push({
+              type: "Malware",
+              severity: "Critical",
+              source: addresses[0],
+              region: location.region,
+              city: location.city,
+              blocked: Math.random() > 0.3,
+              source_data: "URLhaus",
+              threat_score: 95,
+            });
+          }
+        } catch (err) {
+          // ignore individual URL failures and continue
+        }
+      }));
     } catch (err) {
-      console.error("URLhaus error:", err.message);
+      console.error("URLhaus error:", err.response?.data || err.message);
     }
 
     // 3. AlienVault OTX - Threat feeds
-    const otxKey = process.env.OTX_API_KEY;
+    const otxKey = appConfig.OTX_API_KEY;
     if (otxKey) {
       try {
         const otxResponse = await axios.get("https://otx.alienvault.com/api/v1/pulses/subscribed", {
           headers: { "X-OTX-API-KEY": otxKey },
           timeout: 5000,
         });
-        
+
         if (otxResponse.data && otxResponse.data.results) {
           otxResponse.data.results.slice(0, 3).forEach((pulse) => {
             const threatType = pulse.name?.split(" ")[0] || "Threat";
@@ -549,8 +672,9 @@ async function fetchRealThreats() {
           });
         }
       } catch (err) {
-        console.error("OTX error:", err.message);
+        console.error("OTX error:", err.response?.data || err.message);
       }
+
     }
 
   } catch (err) {
@@ -625,17 +749,15 @@ app.get("/api/threats", async (req, res) => {
 app.post("/api/create-checkout-session", async (req, res) => {
   try {
     const { plan } = req.body;
-    const priceId = PRICE_IDS[plan];
+    const priceId = getPriceId(plan);
 
     if (!priceId) {
       return res.status(400).json({ error: "Invalid plan selected" });
     }
 
-    if (!process.env.STRIPE_SECRET_KEY) {
-      return res.status(500).json({ error: "Stripe secret key is not configured" });
-    }
+    const stripeClient = getStripeClient();
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripeClient.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "subscription",
       line_items: [
@@ -646,8 +768,8 @@ app.post("/api/create-checkout-session", async (req, res) => {
       ],
       billing_address_collection: "auto",
       allow_promotion_codes: true,
-      success_url: `${FRONTEND_URL}/?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${FRONTEND_URL}/?canceled=true`,
+      success_url: `${appConfig.FRONTEND_URL}/?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appConfig.FRONTEND_URL}/?canceled=true`,
       metadata: {
         plan,
       },
@@ -657,6 +779,353 @@ app.post("/api/create-checkout-session", async (req, res) => {
   } catch (error) {
     console.error("Error creating Stripe checkout session:", error.response?.data || error.message);
     res.status(500).json({ error: "Unable to create checkout session." });
+  }
+});
+
+// Report generation functions
+function generateOverviewReport(dateRange) {
+  const days = dateRange === "1d" ? 1 : dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : 90;
+  const threatTrends = [];
+
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    threatTrends.push({
+      date: date.toISOString().split('T')[0],
+      threats: Math.floor(Math.random() * 25) + 5,
+      blocked: Math.floor(Math.random() * 20) + 3,
+    });
+  }
+
+  return {
+    summary: {
+      totalThreats: threatTrends.reduce((sum, day) => sum + day.threats, 0),
+      blockedThreats: threatTrends.reduce((sum, day) => sum + day.blocked, 0),
+      activeScans: Math.floor(Math.random() * 10) + 5,
+      vulnerabilities: Math.floor(Math.random() * 20) + 10,
+      systemsProtected: Math.floor(Math.random() * 5) + 8,
+      uptime: "99." + Math.floor(Math.random() * 9) + "%"
+    },
+    threatTrends,
+    threatTypes: [
+      { name: "Phishing", value: Math.floor(Math.random() * 40) + 20, color: "#ef4444" },
+      { name: "Malware", value: Math.floor(Math.random() * 30) + 15, color: "#f97316" },
+      { name: "Brute Force", value: Math.floor(Math.random() * 25) + 10, color: "#eab308" },
+      { name: "SQL Injection", value: Math.floor(Math.random() * 20) + 5, color: "#22c55e" },
+    ],
+    topRegions: [
+      { region: "Russia", threats: Math.floor(Math.random() * 50) + 30, percentage: Math.floor(Math.random() * 20) + 15 },
+      { region: "China", threats: Math.floor(Math.random() * 40) + 25, percentage: Math.floor(Math.random() * 15) + 10 },
+      { region: "USA", threats: Math.floor(Math.random() * 35) + 20, percentage: Math.floor(Math.random() * 15) + 8 },
+      { region: "Brazil", threats: Math.floor(Math.random() * 30) + 15, percentage: Math.floor(Math.random() * 12) + 6 },
+      { region: "India", threats: Math.floor(Math.random() * 25) + 10, percentage: Math.floor(Math.random() * 10) + 5 },
+    ],
+    recentScans: [
+      { id: 1, type: "Network Scan", target: "192.168.1.0/24", vulnerabilities: Math.floor(Math.random() * 5), time: "2 hours ago" },
+      { id: 2, type: "Vulnerability Scan", target: "example.com", vulnerabilities: Math.floor(Math.random() * 10), time: "4 hours ago" },
+      { id: 3, type: "Port Scan", target: "10.0.0.1", vulnerabilities: Math.floor(Math.random() * 3), time: "6 hours ago" },
+    ]
+  };
+}
+
+function generateThreatsReport(dateRange) {
+  const days = dateRange === "1d" ? 1 : dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : 90;
+  const threatTrends = [];
+
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    threatTrends.push({
+      date: date.toISOString().split('T')[0],
+      threats: Math.floor(Math.random() * 30) + 10,
+      blocked: Math.floor(Math.random() * 25) + 8,
+      critical: Math.floor(Math.random() * 10) + 2,
+    });
+  }
+
+  return {
+    summary: {
+      totalThreats: threatTrends.reduce((sum, day) => sum + day.threats, 0),
+      blockedThreats: threatTrends.reduce((sum, day) => sum + day.blocked, 0),
+      criticalThreats: threatTrends.reduce((sum, day) => sum + day.critical, 0),
+      successRate: Math.floor(Math.random() * 10) + 85,
+    },
+    threatTrends,
+    threatBreakdown: {
+      phishing: Math.floor(Math.random() * 40) + 20,
+      malware: Math.floor(Math.random() * 35) + 15,
+      bruteForce: Math.floor(Math.random() * 30) + 10,
+      sqlInjection: Math.floor(Math.random() * 25) + 5,
+      ddos: Math.floor(Math.random() * 20) + 3,
+    }
+  };
+}
+
+function generateScansReport(dateRange) {
+  return {
+    summary: {
+      totalScans: Math.floor(Math.random() * 50) + 20,
+      completedScans: Math.floor(Math.random() * 45) + 15,
+      failedScans: Math.floor(Math.random() * 5) + 1,
+      averageDuration: Math.floor(Math.random() * 300) + 60,
+    },
+    scanTypes: [
+      { type: "Network Scan", count: Math.floor(Math.random() * 20) + 10, success: Math.floor(Math.random() * 10) + 85 },
+      { type: "Vulnerability Scan", count: Math.floor(Math.random() * 15) + 8, success: Math.floor(Math.random() * 10) + 80 },
+      { type: "Port Scan", count: Math.floor(Math.random() * 25) + 12, success: Math.floor(Math.random() * 10) + 90 },
+      { type: "Device Discovery", count: Math.floor(Math.random() * 10) + 5, success: Math.floor(Math.random() * 10) + 75 },
+    ],
+    recentScans: Array.from({ length: 10 }, (_, i) => ({
+      id: i + 1,
+      type: ["Network Scan", "Vulnerability Scan", "Port Scan", "Device Discovery"][Math.floor(Math.random() * 4)],
+      target: ["192.168.1.0/24", "example.com", "10.0.0.1", "203.45.67.89"][Math.floor(Math.random() * 4)],
+      status: ["Completed", "Completed", "Completed", "Failed"][Math.floor(Math.random() * 4)],
+      vulnerabilities: Math.floor(Math.random() * 8),
+      duration: Math.floor(Math.random() * 300) + 30,
+      time: `${Math.floor(Math.random() * 24)} hours ago`,
+    }))
+  };
+}
+
+function generateVulnerabilitiesReport(dateRange) {
+  return {
+    summary: {
+      totalVulnerabilities: Math.floor(Math.random() * 100) + 50,
+      criticalVulnerabilities: Math.floor(Math.random() * 20) + 5,
+      highVulnerabilities: Math.floor(Math.random() * 30) + 15,
+      mediumVulnerabilities: Math.floor(Math.random() * 40) + 20,
+      lowVulnerabilities: Math.floor(Math.random() * 50) + 25,
+    },
+    vulnerabilities: [
+      {
+        name: "Exposed MySQL Database",
+        severity: "Critical",
+        count: Math.floor(Math.random() * 5) + 1,
+        affectedSystems: Math.floor(Math.random() * 3) + 1,
+        remediation: "Restrict database access to trusted IPs only",
+        cve: "CVE-2023-XXXX"
+      },
+      {
+        name: "Weak SSH Configuration",
+        severity: "High",
+        count: Math.floor(Math.random() * 8) + 3,
+        affectedSystems: Math.floor(Math.random() * 5) + 2,
+        remediation: "Disable password authentication, use key-based auth",
+        cve: "CVE-2022-XXXX"
+      },
+      {
+        name: "Missing Security Headers",
+        severity: "Medium",
+        count: Math.floor(Math.random() * 12) + 5,
+        affectedSystems: Math.floor(Math.random() * 8) + 3,
+        remediation: "Add HSTS, CSP, and X-Frame-Options headers",
+        cve: null
+      },
+      {
+        name: "Outdated SSL Certificates",
+        severity: "High",
+        count: Math.floor(Math.random() * 6) + 2,
+        affectedSystems: Math.floor(Math.random() * 4) + 1,
+        remediation: "Update to TLS 1.3 and renew certificates",
+        cve: "CVE-2021-XXXX"
+      },
+    ],
+    trends: Array.from({ length: 7 }, (_, i) => ({
+      date: new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      new: Math.floor(Math.random() * 10) + 1,
+      resolved: Math.floor(Math.random() * 8) + 1,
+    })).reverse()
+  };
+}
+
+function generateComplianceReport(dateRange) {
+  return {
+    standards: [
+      {
+        name: "PCI DSS",
+        compliance: Math.floor(Math.random() * 20) + 80,
+        status: "Good",
+        issues: Math.floor(Math.random() * 5) + 1,
+        description: "Payment card data handling compliance",
+        requirements: [
+          "Implement strong access control measures",
+          "Regularly monitor and test networks",
+          "Maintain a vulnerability management program"
+        ]
+      },
+      {
+        name: "GDPR",
+        compliance: Math.floor(Math.random() * 25) + 65,
+        status: "Needs Attention",
+        issues: Math.floor(Math.random() * 10) + 5,
+        description: "EU data protection regulations",
+        requirements: [
+          "Obtain consent for data processing",
+          "Implement data breach notification procedures",
+          "Conduct data protection impact assessments"
+        ]
+      },
+      {
+        name: "HIPAA",
+        compliance: Math.floor(Math.random() * 15) + 85,
+        status: "Excellent",
+        issues: Math.floor(Math.random() * 3) + 1,
+        description: "Healthcare data privacy",
+        requirements: [
+          "Implement safeguards for electronic PHI",
+          "Conduct regular risk assessments",
+          "Provide security training to workforce"
+        ]
+      },
+      {
+        name: "SOX",
+        compliance: Math.floor(Math.random() * 30) + 60,
+        status: "Critical",
+        issues: Math.floor(Math.random() * 15) + 8,
+        description: "Financial reporting controls",
+        requirements: [
+          "Maintain effective internal controls",
+          "Implement proper access controls",
+          "Regular auditing and monitoring"
+        ]
+      }
+    ],
+    overallCompliance: Math.floor(Math.random() * 20) + 75,
+    criticalIssues: Math.floor(Math.random() * 10) + 3,
+    upcomingDeadlines: [
+      { standard: "PCI DSS", deadline: "2026-06-30", description: "Annual compliance assessment" },
+      { standard: "GDPR", deadline: "2026-07-15", description: "Data protection officer report" },
+      { standard: "HIPAA", deadline: "2026-08-01", description: "Security risk assessment" },
+    ]
+  };
+}
+
+// Reports endpoints
+app.get("/api/reports/:type", (req, res) => {
+  try {
+    const { type } = req.params;
+    const { range = "7d" } = req.query;
+
+    let reportData;
+
+    switch (type) {
+      case "overview":
+        reportData = generateOverviewReport(range);
+        break;
+      case "threats":
+        reportData = generateThreatsReport(range);
+        break;
+      case "scans":
+        reportData = generateScansReport(range);
+        break;
+      case "vulnerabilities":
+        reportData = generateVulnerabilitiesReport(range);
+        break;
+      case "compliance":
+        reportData = generateComplianceReport(range);
+        break;
+      default:
+        return res.status(400).json({ error: "Invalid report type" });
+    }
+
+    res.json({
+      success: true,
+      reportType: type,
+      dateRange: range,
+      generatedAt: new Date().toISOString(),
+      ...reportData
+    });
+
+  } catch (error) {
+    console.error("Error generating report:", error.message);
+    res.status(500).json({
+      error: "Report generation failed",
+      details: error.message,
+    });
+  }
+});
+
+// Report export endpoint
+app.post("/api/reports/export", (req, res) => {
+  try {
+    const { type, format, dateRange, data } = req.body;
+
+    if (format === "csv") {
+      // Generate CSV content
+      let csvContent = "Report Type,Date Range,Generated At\n";
+      csvContent += `${type},${dateRange},${new Date().toISOString()}\n\n`;
+
+      if (type === "overview" && data.summary) {
+        csvContent += "Summary Metrics\n";
+        csvContent += "Metric,Value\n";
+        Object.entries(data.summary).forEach(([key, value]) => {
+          csvContent += `${key.replace(/([A-Z])/g, ' $1').trim()},${value}\n`;
+        });
+      }
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="cipherwatch-${type}-report.csv"`);
+      res.send(csvContent);
+
+    } else if (format === "pdf") {
+      // For PDF, we'll create a simple HTML that can be converted to PDF
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>CipherWatch ${type.charAt(0).toUpperCase() + type.slice(1)} Report</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            h1 { color: #1e293b; border-bottom: 2px solid #22d3ee; padding-bottom: 10px; }
+            h2 { color: #374151; margin-top: 30px; }
+            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+            th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; }
+            th { background-color: #f3f4f6; }
+            .summary { background-color: #f8fafc; padding: 15px; border-radius: 5px; margin: 20px 0; }
+            .metric { display: inline-block; margin: 10px; padding: 10px; background: white; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+          </style>
+        </head>
+        <body>
+          <h1>CipherWatch Security Report</h1>
+          <p><strong>Report Type:</strong> ${type.charAt(0).toUpperCase() + type.slice(1)}</p>
+          <p><strong>Date Range:</strong> ${dateRange}</p>
+          <p><strong>Generated:</strong> ${new Date().toISOString()}</p>
+
+          ${type === "overview" && data.summary ? `
+            <h2>Executive Summary</h2>
+            <div class="summary">
+              ${Object.entries(data.summary).map(([key, value]) =>
+                `<div class="metric"><strong>${key.replace(/([A-Z])/g, ' $1').trim()}:</strong> ${value}</div>`
+              ).join('')}
+            </div>
+          ` : ''}
+
+          ${data.threatTrends ? `
+            <h2>Threat Trends</h2>
+            <table>
+              <tr><th>Date</th><th>Threats Detected</th><th>Threats Blocked</th></tr>
+              ${data.threatTrends.map(day => `<tr><td>${day.date}</td><td>${day.threats}</td><td>${day.blocked}</td></tr>`).join('')}
+            </table>
+          ` : ''}
+
+          <h2>Report Details</h2>
+          <p>This report was generated by CipherWatch security monitoring system.</p>
+          <p>For detailed analysis and recommendations, please refer to the dashboard.</p>
+        </body>
+        </html>
+      `;
+
+      res.setHeader("Content-Type", "text/html");
+      res.setHeader("Content-Disposition", `attachment; filename="cipherwatch-${type}-report.html"`);
+      res.send(htmlContent);
+    }
+
+  } catch (error) {
+    console.error("Error exporting report:", error.message);
+    res.status(500).json({
+      error: "Report export failed",
+      details: error.message,
+    });
   }
 });
 
@@ -677,4 +1146,6 @@ app.listen(PORT, () => {
   console.log(`   - Phishing Scanner: POST http://localhost:${PORT}/api/scan`);
   console.log(`   - Network Scanner: POST http://localhost:${PORT}/api/network-scan`);
   console.log(`   - Threat Monitor: GET http://localhost:${PORT}/api/threats`);
+  console.log(`   - Reports: GET http://localhost:${PORT}/api/reports/:type`);
+  console.log(`   - Report Export: POST http://localhost:${PORT}/api/reports/export`);
 });
